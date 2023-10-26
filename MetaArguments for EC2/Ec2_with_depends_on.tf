@@ -13,6 +13,6 @@ resource "aws_instance" "myinstance" {
 }
 
 resource "aws_s3_bucket" "mybucket" {
-  bucket = "mybucket"
+  bucket = "mybucket_Name"
 }
 
