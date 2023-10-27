@@ -68,7 +68,3 @@ variable "db_instance" {
   default = "db.t2.micro"
 }
 
-variable "multi_az" {
-  type = bool
-  default = true
-}

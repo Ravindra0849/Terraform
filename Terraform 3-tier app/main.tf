@@ -1,4 +1,16 @@
-# Creating a local 
+terraform {
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+      version = "5.23.0"
+    }
+  }
+}
+
+provider "aws" {
+  # Configuration options
+  region = "us-east-1"
+}
 
 locals {
   environment = var.project_Name
@@ -56,10 +68,11 @@ resource "aws_internet_gateway" "IGW" {
 resource "aws_route_table" "Public_RT" {
   vpc_id = aws_vpc.myvpc.id
 
-  route = {
+  route {
     cidr_block = var.route_cidr
     gateway_id = aws_internet_gateway.IGW.id
   }
+
 
   tags = {
     Name = "${local.environment}_Public_RT"
@@ -70,7 +83,6 @@ resource "aws_route_table_association" "Public_RTA" {
   subnet_id = aws_subnet.web_public-1.id
   route_table_id = aws_route_table.Public_RT.id
 }
-
 
 # create a Private subnets for App server
 
@@ -112,7 +124,7 @@ resource "aws_subnet" "DB_private_subnet-1" {
 resource "aws_subnet" "DB_private_subnet-2" {
   vpc_id = aws_vpc.myvpc.id
   cidr_block = var.DB_private-2
-  availability_zone = "us-east-1b"
+  availability_zone = "us-east-1a"
   map_public_ip_on_launch = "false"
   
   tags = {
@@ -144,7 +156,7 @@ resource "aws_nat_gateway" "nat-1" {
 resource "aws_route_table" "Private_route_table" {
   vpc_id = aws_vpc.myvpc.id
 
-  route = {
+  route {
     cidr_block = var.route_cidr
     nat_gateway_id = aws_nat_gateway.nat-1.id
   }
@@ -157,19 +169,19 @@ resource "aws_route_table_association" "nat_app_route_1" {
   route_table_id = aws_route_table.Private_route_table.id
 }
 
-resource "aws_route_table_association" "nat_app_route_1" {
+resource "aws_route_table_association" "nat_app_route_2" {
   subnet_id = aws_subnet.App_private-2.id
   route_table_id = aws_route_table.Private_route_table.id
 }
 
 # Create a route table association for DB tier
 
-resource "aws_route_table_association" "nat_app_route_1" {
+resource "aws_route_table_association" "nat_DB_route_1" {
   subnet_id = aws_subnet.DB_private_subnet-1.id
   route_table_id = aws_route_table.Private_route_table.id
 }
 
-resource "aws_route_table_association" "nat_app_route_1" {
+resource "aws_route_table_association" "nat_DB_route_2" {
   subnet_id = aws_subnet.DB_private_subnet-2.id
   route_table_id = aws_route_table.Private_route_table.id
 }
@@ -218,7 +230,7 @@ resource "aws_security_group" "SSH_Sg" {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["here we provide our ip" ]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
@@ -305,10 +317,10 @@ resource "aws_security_group" "DB_SG" {
 
 # Create an EC2 Instances for Web Server and App Server
 
-resource "aws_instance" "_Web_server" {
-  ami = "ami-029c925c0f16a0956"
-  key_name = "mumbai"
-  instance_type = "t2.micro"
+resource "aws_instance" "Web_server" {
+  ami = "ami-0fc5d935ebf8bc3bc"
+  key_name = "project-key"
+  instance_type = "t2.small"
   subnet_id = aws_subnet.web_public-1.id
   vpc_security_group_ids = [aws_security_group.ALB_SG.id]
   user_data = file("script.sh")
@@ -319,11 +331,11 @@ resource "aws_instance" "_Web_server" {
 }
 
 resource "aws_instance" "App_Server" {
-  ami = "ami-029c925c0f16a0956"
+  ami = "ami-0fc5d935ebf8bc3bc"
   instance_type = "t2.micro"
   subnet_id = aws_subnet.App_private-1.id
   vpc_security_group_ids = [aws_security_group.SSH_Sg.id]
-  key_name = "mumbai"
+  key_name = "project-key"
 
   tags = {
     Name = "${local.environment}_Appserver"
@@ -334,10 +346,10 @@ resource "aws_instance" "App_Server" {
 
 resource "aws_launch_template" "auto-Scaling-group-web" {
   name_prefix = "auto-scaling-group"
-  image_id = "ami-029c925c0f16a0956"
+  image_id = "ami-0fc5d935ebf8bc3bc"
   instance_type = "t2.micro"
-  key_name = "mumbai"
-  user_data = file(script.sh)
+  key_name = "project-key"
+  
   network_interfaces {
     subnet_id = aws_subnet.web_public-1.id
     security_groups = [aws_security_group.Web_tier_SG.id]
@@ -359,9 +371,9 @@ resource "aws_autoscaling_group" "asg-1" {
 
 resource "aws_launch_template" "auto-scaling-App" {
   name_prefix = "App-auto-scaling-group"
-  image_id = "ami-029c925c0f16a0956"
+  image_id = "ami-0fc5d935ebf8bc3bc"
   instance_type = "t2.micro"
-  key_name = "mumbai"
+  key_name = "project-key"
 
   network_interfaces {
     subnet_id = aws_subnet.App_private-1.id
@@ -396,7 +408,7 @@ resource "aws_alb" "Application-Load-Balancer" {
 }
 
 resource "aws_lb_target_group" "alb_target_group" {
-  name = "appbalancer_tg"
+  name = "appbalancertg"
   port = 80
   protocol = "HTTP"
   vpc_id = aws_vpc.myvpc.id
@@ -404,7 +416,7 @@ resource "aws_lb_target_group" "alb_target_group" {
 
 resource "aws_lb_target_group_attachment" "web-attachment" {
   target_group_arn = aws_lb_target_group.alb_target_group.arn
-  target_id = aws_instance._Web_server.id
+  target_id = aws_instance.Web_server.id
   port = 80
 }
 
@@ -442,12 +454,11 @@ resource "aws_db_instance" "database-instance" {
   instance_class = var.db_instance
   db_name = "sqldb"
   username = "admin"
-  password = "admin"
+  password = "Ravindra"
   parameter_group_name = "default.mysql5.7"
   skip_final_snapshot = true
   availability_zone = "us-east-1b"
   db_subnet_group_name = aws_db_subnet_group.database-subnet-group.name
-  multi_az = var.multi_az
   vpc_security_group_ids = [aws_security_group.DB_SG.id]
 }
 
